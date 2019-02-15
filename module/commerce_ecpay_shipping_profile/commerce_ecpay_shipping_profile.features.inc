@@ -13,7 +13,7 @@ function commerce_ecpay_shipping_profile_commerce_customer_profile_type_info() {
       'description' => 'The profile used to collect personal information on the checkout and order forms.',
       'help' => '',
       'addressfield' => FALSE,
-      'module' => 'hs_base',
+      'module' => 'commerce_ecpay_shipping_profile',
       'label_callback' => 'commerce_customer_profile_default_label',
       'type' => 'recipient',
       'name' => '收件人資訊',
