@@ -1,8 +1,7 @@
 <?php
 
 function allpay_shipping_map_page(){
-  // Include allPay integration SDK
-  invoke_allpay_shipping_module();
+
   global $base_url;
   foreach ($_GET as $a => $b) {
 		$data[$a]=$b;
@@ -53,8 +52,6 @@ function allpay_shipping_order_request(){
 
   try {
 
-    // Include allPay integration SDK
-    invoke_allpay_shipping_module();
     //預設環境，若沒有設定則用測試環境。
     $status=variable_get('allpay_shipping_status','dev');
     if ($status == 'dev') {

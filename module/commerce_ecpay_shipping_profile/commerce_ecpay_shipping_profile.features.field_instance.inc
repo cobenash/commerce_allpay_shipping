@@ -105,38 +105,8 @@ function commerce_ecpay_shipping_profile_field_default_field_instances() {
     'entity_type' => 'commerce_customer_profile',
     'field_name' => 'field_billing_address',
     'label' => '聯絡地址',
-    'required' => 0,
+    'required' => 1,
     'settings' => array(
-      'better_formats' => array(
-        'allowed_formats' => array(
-          'ds_code' => 'ds_code',
-          'filtered_html' => 'filtered_html',
-          'full_html' => 'full_html',
-          'plain_text' => 'plain_text',
-          'pure_html' => 'pure_html',
-        ),
-        'allowed_formats_toggle' => 0,
-        'default_order_toggle' => 0,
-        'default_order_wrapper' => array(
-          'formats' => array(
-            'ds_code' => array(
-              'weight' => 12,
-            ),
-            'filtered_html' => array(
-              'weight' => 0,
-            ),
-            'full_html' => array(
-              'weight' => 1,
-            ),
-            'plain_text' => array(
-              'weight' => 10,
-            ),
-            'pure_html' => array(
-              'weight' => 0,
-            ),
-          ),
-        ),
-      ),
       'text_processing' => 0,
       'user_register_form' => FALSE,
     ),
@@ -1578,38 +1548,8 @@ function commerce_ecpay_shipping_profile_field_default_field_instances() {
     'entity_type' => 'commerce_customer_profile',
     'field_name' => 'field_zipcode',
     'label' => '郵遞區號',
-    'required' => 0,
+    'required' => 1,
     'settings' => array(
-      'better_formats' => array(
-        'allowed_formats' => array(
-          'ds_code' => 'ds_code',
-          'filtered_html' => 'filtered_html',
-          'full_html' => 'full_html',
-          'plain_text' => 'plain_text',
-          'pure_html' => 'pure_html',
-        ),
-        'allowed_formats_toggle' => 0,
-        'default_order_toggle' => 0,
-        'default_order_wrapper' => array(
-          'formats' => array(
-            'ds_code' => array(
-              'weight' => 12,
-            ),
-            'filtered_html' => array(
-              'weight' => 0,
-            ),
-            'full_html' => array(
-              'weight' => 1,
-            ),
-            'plain_text' => array(
-              'weight' => 10,
-            ),
-            'pure_html' => array(
-              'weight' => 0,
-            ),
-          ),
-        ),
-      ),
       'text_processing' => 0,
       'user_register_form' => FALSE,
     ),

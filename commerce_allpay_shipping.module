@@ -657,8 +657,6 @@ function commerce_allpay_shipping_variable_info() {
 // Define Create shipping order
 function create_shipping_order($ecpaylogisticSetting){
   global $base_url;
-  // Include allPay integration SDK
-  invoke_allpay_shipping_module();
   try {
            $AL = new ECPayLogistics();
            $AL->HashKey = $ecpaylogisticSetting['ecpaylogistic_hashkey'];
