@@ -1,0 +1,798 @@
+<?php
+//
+// 重要說明： 由於本來以為B2C就是給公司使用的物流方式，後來發現 B2C是專門給大宗購物使用，小廠商要串接物流 是使用c2c
+// 因此，這裡絕大部分看到的機器名稱都是B2C，但是在定義cvs_id送出去的時候，會直接轉成c2c
+//
+//
+
+/**
+ * Implements hook_init().
+ */
+function commerce_allpay_shipping_init() {
+
+  // Include allPay integration SDK
+  $module_list = array('ECPay.Logistics.Integration', 'allpay_config');
+	foreach ($module_list as $module_name) {
+		$include_result = module_load_include('php', 'commerce_allpay_shipping', 'lib/' . $module_name);
+		if (!$include_result) {
+			throw new Exception(t('allPay module missed.'));
+		}
+	}
+}
+
+
+function commerce_allpay_shipping_menu(){
+  $items = array();
+
+  $items['admin/commerce/config/allpay_shipping'] = array(
+      'title' => '綠界科技物流服務平台',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('commerce_allpay_shipping_settings_form'),
+      'access arguments' => array('administer commerce allpay shipping'),
+      'file' => 'commerce_allpay_shipping.admin.inc',
+      'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['checkout/%/map-select'] = array(
+    'title' => t('選擇商店'),
+    'page callback' => 'allpay_shipping_map_page',
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'allpay-emap.pages.inc',
+    'access callback'=>TRUE,
+  );
+  $items['checkout/%/map-request'] = array(
+    'title' => t('電子地圖存取'),
+    'page callback' => 'allpay_shipping_map_page_request',
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'allpay-emap.pages.inc',
+    'access callback'=>TRUE,
+  );
+  $items['checkout/%/change_status'] = array(
+    'title' => t('更改物流狀態'),
+    'page callback' => 'allpay_shipping_order_request',
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'allpay-emap.pages.inc',
+    'access callback'=>TRUE,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_allpay_shipping_permission() {
+    return array(
+        'administer commerce ecpay shipping' => array(
+            'title' => t('administer commerce ecpay shipping'),
+            'restrict access' => TRUE,
+        ),
+    );
+}
+
+
+
+/**
+ *  這裡定義全部的allpay物流方式。
+ */
+function commerce_allpay_shipping_commerce_shipping_method_info() {
+  $shipping_methods = array();
+
+  $shipping_methods['allpay_cvs_b2c_fami'] = array(
+    'title' => t('超商取貨：全家便利商店'),
+    'description' => t('B2C全家超商取貨服務'),
+    'active' => true,
+  );
+
+  $shipping_methods['allpay_cvs_b2c_unimart'] = array(
+    'title' => t('超商取貨：統一超商'),
+    'description' => t('B2C統一超商超商取貨服務'),
+    'active' => true,
+  );
+
+  $shipping_methods['allpay_cvs_b2c_hilife'] = array(
+    'title' => t('超商取貨：萊爾富'),
+    'description' => t('B2C萊爾富超商取貨服務'),
+    'active' => true,
+  );
+
+  $shipping_methods['allpay_home_tcat'] = array(
+    'title' => t('宅配：黑貓宅急便'),
+    'description' => t('黑貓宅急便宅配服務'),
+    'active' => true,
+  );
+
+  $shipping_methods['allpay_home_ecan'] = array(
+    'title' => t('宅配：宅配通'),
+    'description' => t('宅配通宅配服務'),
+    'active' => true,
+  );
+
+  return $shipping_methods;
+}
+
+/**
+ * Implements hook_commerce_shipping_service_info().
+ */
+function commerce_allpay_shipping_commerce_shipping_service_info() {
+
+  $shipping_services = array();
+
+  $shipping_services['allpay_cvs_b2c_fami'] = array(
+    'title' => t('超商取貨：全家便利商店'),
+    'description' => t('B2C全家超商取貨服務'),
+    'display_title' => t('(超商取貨)全家便利商店'),
+    'shipping_method' => 'allpay_cvs_b2c_fami',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'allpay_service_rate',
+    ),
+  );
+
+  $shipping_services['allpay_cvs_b2c_unimart'] = array(
+    'title' => t('超商取貨：統一超商'),
+    'description' => t('B2C統一超商超商取貨服務'),
+    'display_title' => t('(超商取貨)統一超商'),
+    'shipping_method' => 'allpay_cvs_b2c_unimart',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'allpay_service_rate',
+    ),
+  );
+
+  $shipping_services['allpay_cvs_b2c_hilife'] = array(
+    'title' => t('超商取貨：萊爾富'),
+    'description' => t('B2C萊爾富超商取貨服務'),
+    'display_title' => t('(超商取貨)萊爾富'),
+    'shipping_method' => 'allpay_cvs_b2c_hilife',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'allpay_service_rate',
+    ),
+  );
+
+  $shipping_services['allpay_home_tcat'] = array(
+    'title' => t('宅配：黑貓宅急便'),
+    'description' => t('黑貓宅急便宅配服務。備註：若是外島運費需再多加NT.%extra',array('%extra'=>allpay_home_tcat_price_extra_decimal)),
+    'display_title' => t('(宅配)黑貓宅急便'),
+    'shipping_method' => 'allpay_home_tcat',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'allpay_service_rate',
+      'details_form' => 'commerce_shipping_tcat_service_details_form',
+      'details_form_validate' => 'commerce_shipping_tcat_service_details_form_validate',
+      'details_form_submit' => 'commerce_shipping_tcat_service_details_form_submit',
+    ),
+  );
+
+  $shipping_services['allpay_home_ecan'] = array(
+    'title' => t('宅配：宅配通'),
+    'description' => t('宅配通宅配服務。備註：若是外島運費需再多加NT.%extra',array('%extra'=>allpay_home_ecan_price_extra_decimal)),
+    'display_title' => t('(宅配)宅配通'),
+    'shipping_method' => 'allpay_home_ecan',
+    'price_component' => 'shipping',
+    'callbacks' => array(
+      'rate' => 'allpay_service_rate',
+      'details_form' => 'commerce_shipping_tcat_service_details_form',
+      'details_form_validate' => 'commerce_shipping_tcat_service_details_form_validate',
+      'details_form_submit' => 'commerce_shipping_tcat_service_details_form_submit',
+    ),
+  );
+
+  return $shipping_services;
+}
+
+/**
+ * 宅配需要額外的資訊
+ */
+function commerce_shipping_tcat_service_details_form($pane_form, $pane_values, $checkout_pane, $order, $shipping_service) {
+  $form = array();
+  $profile_id=$order->commerce_customer_recipient['und'][0]['profile_id'];
+  $shipping_profile=commerce_customer_profile_load($profile_id);
+  $SenderZipCode=variable_get('allpay_shipping_zipcode','106');
+  $ReceiverZipCode=$shipping_profile->field_zipcode['und'][0]['value'];
+  $Distance=check_location_distance($SenderZipCode,$ReceiverZipCode);
+  if($Distance=='02'){
+    $form['shipping_information'] = array(
+    '#markup' => '<span class="shipping-info">' . t('請注意：您的運費需要加上離島運費') . '</span>',
+  );
+  }
+
+  $pane_values['service_details'] += array(
+    'scheduledelivertime' => '',
+  );
+
+  $form['scheduledelivertime'] = array(
+    '#type' => 'radios',
+    '#title' => t('預計到貨時間'),
+    '#default_value' => empty($pane_values['service_details']['scheduledelivertime'])?4:$pane_values['service_details']['scheduledelivertime'],
+    '#options'=>array(
+      '1'=>'9:00~12:00',
+      '2'=>'12:00~17:00',
+      '3'=>'17:00~20:00',
+      '4'=>'不限時',
+    ),
+    '#required'=>TRUE,
+
+  );
+
+  return $form;
+}
+
+/**
+ * 將希望的時段存起來
+ */
+function commerce_shipping_tcat_service_details_form_submit($details_form, $details_values, $line_item) {
+
+  $shipping_services = array();
+
+  $order_id=$line_item->order_id;
+  $order=commerce_order_load($order_id);
+  $order->data['scheduledelivertime']=$details_values['scheduledelivertime'];
+  field_attach_update('commerce_order', $order);
+
+  //如果是離島，需要再加上離島的運費
+  $profile_id=$order->commerce_customer_recipient['und'][0]['profile_id'];
+  $shipping_profile=commerce_customer_profile_load($profile_id);
+  $SenderZipCode=variable_get('allpay_shipping_zipcode','106');
+  $ReceiverZipCode=$shipping_profile->field_zipcode['und'][0]['value'];
+  $Distance=check_location_distance($SenderZipCode,$ReceiverZipCode);
+  if($Distance=='02'){
+    $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+
+    // 建立離島運費加成
+    $shipping_method=$line_item->commerce_shipping_service['und'][0]['value'];
+    if($shipping_method=='allpay_home_ecan'){
+      $extra_price = array(
+        'amount' => allpay_home_ecan_price_extra,
+        'currency_code' => $line_item_wrapper->commerce_unit_price->currency_code->value(),
+        'data' => array(),
+      );
+    }elseif($shipping_method=='allpay_home_tcat'){
+      $extra_price = array(
+        'amount' => allpay_home_tcat_price_extra,
+        'currency_code' => $line_item_wrapper->commerce_unit_price->currency_code->value(),
+        'data' => array(),
+      );
+    }
+
+
+    // 新增離島運費到單價裡面
+    $line_item_wrapper->commerce_unit_price->amount = $line_item_wrapper->commerce_unit_price->amount->value() + allpay_home_tcat_price_extra;
+
+    // Add the express delivery fee component to the unit price.
+    $line_item_wrapper->commerce_unit_price->data = commerce_price_component_add(
+      $line_item_wrapper->commerce_unit_price->value(),
+      'allpay_home_extra',
+      $extra_price,
+      TRUE,
+      FALSE
+    );
+  }
+
+
+
+
+}
+
+/**
+ * Implements hook_commerce_price_component_type_info().
+ */
+function commerce_allpay_shipping_commerce_price_component_type_info() {
+  return array(
+    'allpay_home_ecan' => array(
+      'title' => t('宅配通'),
+      'weight' => 20,
+    ),
+    'allpay_home_tcat' => array(
+      'title' => t('黑貓宅急便'),
+      'weight' => 20,
+    ),
+    'allpay_home_extra' => array(
+      'title' => t('離島運費加成'),
+      'weight' => 20,
+    ),
+  );
+}
+
+
+function commerce_allpay_shipping_form_commerce_checkout_form_shipping_alter(&$form, &$form_state){
+  //加入判斷是否需要選擇地圖的函數
+  $form['buttons']['continue']['#submit'][]='redirect_to_emap_system';
+  $form['buttons']['continue']['#weight']=100;
+}
+
+//選擇完畢物流之後，從這裡導向到對應的電子地圖
+function redirect_to_emap_system($form, &$form_state){
+
+  global $base_url;
+  $home_array=array('allpay_home_tcat','allpay_home_ecan'); // 宅配
+  $cvs_array=array('allpay_cvs_b2c_fami','allpay_cvs_b2c_unimart','allpay_cvs_b2c_hilife'); // 超商取貨
+
+  //訂單
+  $order=$form_state['order'];
+  $order_id=$order->order_id;
+
+  //物流方式
+  $shipping_method=$form_state['values']['commerce_shipping']['shipping_service'];
+
+  //收件人Profile
+  $profile_id=$order->commerce_customer_recipient['und'][0]['profile_id'];
+  $shipping_profile=commerce_customer_profile_load($profile_id);
+
+  //建立系統物流單號
+  $MerchantTradeNo=date('YmdHis').$order_id;
+
+  //判斷宅配則直接寫入收件人資料，如果是貨到付款，則導入到電子地圖選擇店家
+  if(in_array($shipping_method,$home_array)){
+    $subtype=array(
+      'allpay_home_tcat'=>'TCAT',
+      'allpay_home_ecan'=>'ECAN',
+    );
+    $shipping_profile->field_logisticstype['und'][0]['value']='Home';
+    $shipping_profile->field_merchanttrade['und'][0]['value']=$MerchantTradeNo;
+    $shipping_profile->field_logisticssubtype['und'][0]['value']=$subtype[$shipping_method];
+    $shipping_profile->field_cvsstoreid['und'][0]['value']=NULL;
+    $shipping_profile->field_cvsstorename['und'][0]['value']=NULL;
+    $shipping_profile->field_cvsaddress['und'][0]['value']=NULL;
+    $shipping_profile->field_csvtelephone['und'][0]['value']=NULL;
+    field_attach_update('commerce_customer_profile', $shipping_profile);
+
+  }
+  elseif(in_array($shipping_method,$cvs_array)){
+    $shipping_profile->field_logisticstype['und'][0]['value']='CVS';
+    field_attach_update('commerce_customer_profile', $shipping_profile);
+
+    //預設環境，若沒有設定則用測試環境。
+    $status=variable_get('allpay_shipping_status','dev');
+    if ($status == 'dev') {
+      $MerchantID = ALLPAY_SHIPPING_TEST_MERCHANT_ID;
+    } else {
+      $MerchantID = variable_get('allpay_shipping_MerchantID');
+    }
+
+    $cvs_id=array(
+      'allpay_cvs_b2c_fami'=>'FAMIC2C',
+      'allpay_cvs_b2c_unimart'=>'UNIMARTC2C',
+      'allpay_cvs_b2c_hilife'=>'HILIFEC2C',
+    );
+
+    $option=array(
+      'MerchantID' => $MerchantID,
+      'MerchantTradeNo' => $MerchantTradeNo,
+      'LogisticsSubType' => $cvs_id[$shipping_method],
+      'IsCollection' => 'N',
+      'ServerReplyURL' => $base_url.'/checkout/'.$order_id.'/map-request',
+      'ExtraData' => $profile_id,
+      'Device' => 0
+    );
+    $shipping_url = url($base_url.'/checkout/'.$order_id.'/map-select', array('query' => $option));
+    $form_state['redirect'] = $shipping_url;
+  }
+
+}
+
+
+/**
+ *  運費計算函數。
+ *  價格有可能會調整。因此，這裡使用variable在後台紀錄各個價格
+ */
+function allpay_service_rate($shipping_service, $order) {
+
+
+  $shipping_method=$shipping_service['shipping_method'];
+  $price_array=array(
+    'allpay_cvs_b2c_fami'=>allpay_cvs_b2c_fami_price,
+    'allpay_cvs_b2c_unimart'=>allpay_cvs_b2c_unimart_price,
+    'allpay_cvs_b2c_hilife'=>allpay_cvs_b2c_hilife_price,
+    'allpay_home_tcat'=>allpay_home_tcat_price,
+    'allpay_home_ecan'=>allpay_home_ecan_price,
+  );
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  return array(
+    'amount' => $price_array[$shipping_method],
+    'currency_code' => $order_wrapper->commerce_order_total->currency_code->value(),
+    'data' => array(),
+  );
+}
+
+//送出物流訂單資訊
+function commerce_allpay_shipping_commerce_checkout_complete($order){
+
+  global $base_url;
+
+  //訂單編號
+  $order_id=$order->order_id;
+
+  //訂單價格
+  $order_metadata = entity_metadata_wrapper('commerce_order', $order);
+  $amount=$order_metadata->commerce_order_total->amount->value();
+  $currency_code=$order_metadata->commerce_order_total->currency_code->value();
+  $price=commerce_currency_amount_to_decimal($amount,$currency_code);
+
+  //寄件人資訊
+  $SenderName=variable_get('allpay_shipping_sendername','聖誕');
+  $SenderPhone=variable_get('allpay_shipping_senderphone','0227721225');
+  $SenderCellPhone=variable_get('allpay_shipping_sendercellphone','0912345678');
+  $SenderZipCode=variable_get('allpay_shipping_zipcode','106');
+  $SenderAddress=variable_get('allpay_shipping_address','台北市大安區仁愛路4段345巷4弄47號2樓');
+  $ScheduledPickupTime=variable_get('allpay_shipping_pickuptime','4');
+
+
+  //收件人物流單號
+  $profile_id=$order->commerce_customer_recipient['und'][0]['profile_id'];
+  $shipping_profile=commerce_customer_profile_load($profile_id);
+  $ReceiverName=$shipping_profile->field_billing_name['und'][0]['value'];
+  $ReceiverCellPhone=$shipping_profile->field_billing_phone['und'][0]['value'];
+  $ReceiverEmail=$shipping_profile->field_receivermail['und'][0]['email'];
+  $ReceiverStoreID=$shipping_profile->field_cvsstoreid['und'][0]['value'];
+  $ReceiverZipCode=$shipping_profile->field_zipcode['und'][0]['value'];
+  $ReceiverAddress=$shipping_profile->field_billing_address['und'][0]['value'];
+  $MerchantTradeNo=$shipping_profile->field_merchanttrade['und'][0]['value'];
+  $LogisticsType=$shipping_profile->field_logisticstype['und'][0]['value'];
+  $LogisticsSubType=$shipping_profile->field_logisticssubtype['und'][0]['value'];
+  $Distance=check_location_distance($SenderZipCode,$ReceiverZipCode);
+
+  //預設環境，若沒有設定則用測試環境。
+  $status=variable_get('allpay_shipping_status','dev');
+  if ($status == 'dev') {
+    $MerchantID = ALLPAY_SHIPPING_TEST_MERCHANT_ID;
+    $HashKey=ALLPAY_SHIPPING_TEST_HASHKEY;
+    $HashIV=ALLPAY_SHIPPING_TEST_HASHIV;
+
+  } else {
+    $MerchantID = variable_get('allpay_shipping_MerchantID');
+    $HashKey=variable_get('allpay_shipping_HashKey');
+    $HashIV=variable_get('allpay_shipping_HashIV');
+  }
+
+  //如果是宅配，要把預計到貨時間存下來
+  if($LogisticsType=='Home'){
+    $ScheduledDeliveryTime=$order->data['scheduledelivertime'];
+    $shipping_profile->field_scheduledeliverytime['und'][0]['value']=$ScheduledDeliveryTime;
+    field_attach_update('commerce_customer_profile', $shipping_profile);
+  }
+  else{
+    $ScheduledDeliveryTime='';
+  }
+
+
+  $ecpaylogisticSetting = array(
+    'ecpaylogistic_hashkey'=>$HashKey,
+    'ecpaylogistic_hashiv'=>$HashIV,
+    'ecpaylogistic_mid' => $MerchantID,
+    'MerchantTradeNo' => $MerchantTradeNo,
+    'MerchantTradeDate' => date('Y/m/d H:i:s',REQUEST_TIME),
+    'LogisticsType' => $LogisticsType,
+    'LogisticsSubType' => $LogisticsSubType,
+    'GoodsAmount' => (int)$price,
+    'CollectionAmount' => 0,
+    'IsCollection' => 'N',
+    'GoodsName' => '於網站上進行購物',
+    'SenderName' => $SenderName,
+    'SenderPhone' => $SenderPhone,
+    'SenderCellPhone' => $SenderCellPhone,
+    'SenderAddress'=> $SenderAddress,
+    'SenderZipCode'=> $SenderZipCode,
+    'ReceiverName' => $ReceiverName,
+    'ReceiverPhone' => '',
+    'ReceiverCellPhone' => $ReceiverCellPhone,
+    'ReceiverEmail' => $ReceiverEmail,
+    'ScheduledDeliveryTime'=>$ScheduledDeliveryTime,
+    'TradeDesc' => 'HelloSanta E-commerce Project',
+    'ServerReplyURL' => $base_url.'/checkout/'.$order_id.'/change_status',
+    'ClientReplyURL' => '',
+    'LogisticsC2CReplyURL' => '',
+    'Remark' => 'Victor Remark',
+    'PlatformID' => '',
+    'ReceiverStoreID'=>$ReceiverStoreID,
+    'ReturnStoreID'=>'',
+    'Profile_id'=>$profile_id,
+    'Order_id'=>$order_id,
+    'ReceiverZipCode'=> $ReceiverZipCode,
+    'ReceiverAddress'=>$ReceiverAddress,
+    'Distance'=>$Distance,
+    'ScheduledPickupTime'=>$ScheduledPickupTime,
+  );
+
+	create_shipping_order($ecpaylogisticSetting);
+}
+
+
+// 定義allpay變數
+function commerce_allpay_shipping_variable_group_info() {
+  $groups['allpay_shipping_group'] = array(
+    'title' => t('綠界物流全域設定'),
+    'description' => t('綠界物流全域設定'),
+  );
+  return $groups;
+}
+
+function commerce_allpay_shipping_variable_info() {
+
+  $variables['allpay_shipping_status'] = array(
+    'name'   => 'allpay_shipping_status',
+    'title' => '綠界物流系統狀態',
+    'description' => '請選擇系統狀態。例如：測試環境DEV,正式環境Production',
+    'default' => 'dev',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'radios',
+      '#options' => array(
+        'dev' => '測試環境',
+        'production' => '正式環境',
+      ),
+    ),
+  );
+
+  $variables['allpay_shipping_MerchantID'] = array(
+    'name' => 'allpay_shipping_MerchantID',
+    'title' => '商店代號',
+    'description' => 'MerchantID商店代號',
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'textfield',
+    ),
+  );
+
+  $variables['allpay_shipping_HashKey'] = array(
+    'name' => 'allpay_shipping_HashKey',
+    'title' => 'HashKey',
+    'description' => 'allPay提供的HashKey',
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'textfield',
+    ),
+  );
+
+  $variables['allpay_shipping_HashIV'] = array(
+    'name' => 'allpay_shipping_HashIV',
+    'title' => 'HashIV',
+    'description' => 'allPay提供的HashIV',
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'textfield',
+    ),
+  );
+
+  $variables['allpay_shipping_sendername'] = array(
+    'name' => 'allpay_shipping_sendername',
+    'title' => '寄件人姓名',
+    'description' => '請務必填寫，請勿填寫公司名稱，避免退貨的時候找不到人',
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'textfield',
+    ),
+  );
+
+  $variables['allpay_shipping_senderphone'] = array(
+    'name' => 'allpay_shipping_senderphone',
+    'title' => '寄件人電話',
+    'description' => '請務必填寫，不要有特殊字元，例如：0227721225即可',
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'textfield',
+    ),
+  );
+
+  $variables['allpay_shipping_sendercellphone'] = array(
+    'name' => 'allpay_shipping_sendercellphone',
+    'title' => '寄件人手機',
+    'description' => '請務必填寫,不要有特殊字元，例如：0937123456即可',
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'textfield',
+    ),
+  );
+
+  $variables['allpay_shipping_zipcode'] = array(
+    'name' => 'allpay_shipping_zipcode',
+    'title' => '寄件人郵遞區號',
+    'description' => '請務必填寫',
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'textfield',
+    ),
+  );
+
+  $variables['allpay_shipping_address'] = array(
+    'name' => 'allpay_shipping_address',
+    'title' => '寄件人地址',
+    'description' => '請務必填寫',
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'textfield',
+    ),
+  );
+
+  $variables['allpay_shipping_pickuptime'] = array(
+    'name' => 'allpay_shipping_pickuptime',
+    'title' => t('預定取貨時段'),
+    'description' => t('這個時段主要是用在宅配服務，讓宅配公司決定什麼時候去收貨'),
+    'default' => '',
+    'type' => 'string',
+    'group' => 'allpay_shipping_group',
+    'token' => TRUE,
+    'element' => array(
+      '#type' => 'radios',
+      '#options' => array(
+        '1' => t('9:00~12:00'),
+        '2' => t('12:00~17:00'),
+        '3' => t('17:00~20:00'),
+        '4' => t('不限時'),
+      ),
+    ),
+  );
+
+  return $variables;
+}
+
+
+// Define Create shipping order
+function create_shipping_order($ecpaylogisticSetting){
+  global $base_url;
+  // Include allPay integration SDK
+  invoke_allpay_shipping_module();
+  try {
+           $AL = new ECPayLogistics();
+           $AL->HashKey = $ecpaylogisticSetting['ecpaylogistic_hashkey'];
+           $AL->HashIV = $ecpaylogisticSetting['ecpaylogistic_hashiv'];
+           $AL->Send = array(
+             'MerchantID' => $ecpaylogisticSetting['ecpaylogistic_mid'],
+             'MerchantTradeNo' => $ecpaylogisticSetting['MerchantTradeNo'],
+             'MerchantTradeDate' => $ecpaylogisticSetting['MerchantTradeDate'],
+             'LogisticsType' => $ecpaylogisticSetting['LogisticsType'],
+             'LogisticsSubType' => $ecpaylogisticSetting['LogisticsSubType'],
+             'GoodsAmount' => $ecpaylogisticSetting['GoodsAmount'],
+             'CollectionAmount' => $ecpaylogisticSetting['CollectionAmount'],
+             'IsCollection' => $ecpaylogisticSetting['IsCollection'],
+             'GoodsName' => $ecpaylogisticSetting['GoodsName'],
+             'SenderName' => $ecpaylogisticSetting['SenderName'],
+             'SenderPhone' => $ecpaylogisticSetting['SenderPhone'],
+             'SenderCellPhone' => $ecpaylogisticSetting['SenderCellPhone'],
+             'ReceiverName' => $ecpaylogisticSetting['ReceiverName'],
+             'ReceiverCellPhone' => $ecpaylogisticSetting['ReceiverCellPhone'],
+             'ReceiverEmail' => $ecpaylogisticSetting['ReceiverEmail'],
+             'TradeDesc' => $ecpaylogisticSetting['TradeDesc'],
+             'ServerReplyURL' => $base_url.'/checkout/ecpay/request',
+             'LogisticsC2CReplyURL' => $base_url.'/checkout/ecpay/request/c2c',
+             'Remark' => $ecpaylogisticSetting['Remark'],
+             'PlatformID' => $ecpaylogisticSetting['PlatformID'],
+          );
+
+          switch($ecpaylogisticSetting['LogisticsType']){
+            case 'CVS':
+              $AL->SendExtend = array(
+                'ReceiverStoreID' => $ecpaylogisticSetting['ReceiverStoreID'],
+                'ReturnStoreID' => $ecpaylogisticSetting['ReturnStoreID']
+              );
+            break;
+            case 'Home':
+              $AL->SendExtend = array(
+                'SenderZipCode' => $ecpaylogisticSetting['SenderZipCode'],
+                'SenderAddress' => $ecpaylogisticSetting['SenderAddress'],
+                'ReceiverZipCode' => $ecpaylogisticSetting['ReceiverZipCode'],
+                'ReceiverAddress' => $ecpaylogisticSetting['ReceiverAddress'],
+                'Temperature' => Temperature::ROOM,
+                'Distance' => $ecpaylogisticSetting['Distance'],
+                'Specification' => Specification::CM_150,
+                'ScheduledDeliveryTime' => $ecpaylogisticSetting['ScheduledDeliveryTime'],
+                'ScheduledPickupTime' => $ecpaylogisticSetting['ScheduledPickupTime'],
+              );
+
+            break;
+          }
+
+
+          if ($ecpaylogisticSetting['IsCollection'] == 'N') {
+            unset($AL->Send['CollectionAmount']);
+          }
+          if (!in_array($ecpaylogisticSetting['LogisticsSubType'], array("UNIMARTC2C","HILIFEC2C"))) {
+            unset($AL->Send['SenderCellPhone']);
+          }
+
+          $Result = $AL->BGCreateShippingOrder();
+
+          if ($Result['ResCode'] == 1) {
+            //物流狀態對照表
+            // sc|商品已送至物流中心
+            // achieve|商品已送達門市
+            // receive|消費者成功取件
+            // overdue|消費者7天未取件
+            $RTNCODE=array(
+              2030=>'sc',
+              3024=>'sc',
+              2063=>'achieve',
+              2073=>'achieve',
+              3018=>'achieve',
+              2067=>'receive',
+              3022=>'receive',
+              2074=>'overdue',
+              3020=>'overdue',
+              300=>'pending',
+              2001=>'handle'
+            );
+            $code=$Result['RtnCode'];
+
+
+            //將綠界傳回來的資訊存到資料庫
+            $profile_id=$ecpaylogisticSetting['Profile_id'];
+            $shipping_profile=commerce_customer_profile_load($profile_id);
+            $shipping_profile->field_allpaylogisticsid['und'][0]['value']=$Result['AllPayLogisticsID'];
+            $shipping_profile->field_rtncode['und'][0]['value']=$Result['RtnCode'];
+
+            if(!empty($RTNCODE[$code])){ //如果有代碼就寫進系統
+                $shipping_profile->field_shipping_status['und'][0]['value']=$RTNCODE[$code];
+            }
+
+            $shipping_profile->field_rtnmsg['und'][0]['value']=$Result['RtnMsg'];
+            $shipping_profile->field_updatestatusdate['und'][0]['value']=$Result['UpdateStatusDate'];
+            $shipping_profile->field_cvspaymentno['und'][0]['value']=$Result['CVSPaymentNo'];
+            $shipping_profile->field_bookingnote['und'][0]['value']=$Result['BookingNote'];
+            field_attach_update('commerce_customer_profile', $shipping_profile);
+
+          } else {
+            watchdog('ECPAY SHIPPING',$Result['ErrorMessage'], array(),WATCHDOG_EMERGENCY);
+          }
+        } catch(Exception $e) {
+          echo $e->getMessage();
+          watchdog('ECPAY SHIPPING',$e->getMessage, array(),WATCHDOG_EMERGENCY);
+        }
+}
+
+//00:同縣市 01:外縣市 02：離島
+//這個函數拿來判斷離島／外島／同縣市／外縣市
+function check_location_distance($sender_zip,$receiver_zip){
+
+  //擷取一開始前三碼
+  $sender_zip=substr($sender_zip,0,3);
+  $receiver_zip=substr($receiver_zip,0,3);
+
+  //外島的郵遞區號
+  $outsider=array('880','882','884','881','883','885','890','892','894','891','893','896','209','210','211','212');
+
+  //如果都在外縣市
+  if(in_array($sender_zip,$outsider) and in_array($receiver_zip,$outsider)){
+    return '00';
+  }
+  elseif(!in_array($sender_zip,$outsider) and in_array($receiver_zip,$outsider)){ //寄件人在本島，收件人在外島
+    return '02';
+  }
+  elseif(in_array($sender_zip,$outsider) and !in_array($receiver_zip,$outsider)){ //寄件人在外島，收件人在本島
+    return '02';
+  }
+  elseif(!in_array($sender_zip,$outsider) and !in_array($receiver_zip,$outsider)){ //寄件人與收件人都在本島
+    if(substr($sender_zip,0,1)==substr($receiver_zip,0,1)){ //同縣市
+      return '00';
+    }
+    else{
+      return '01';
+    }
+  }
+}
