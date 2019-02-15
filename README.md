@@ -53,6 +53,6 @@
 
 目前測試的版本為
 
-Drupal：7.64
-Commerce： 7.x-1.14
-Shipping： 7.x-2.3
+* Drupal：7.64
+* Commerce： 7.x-1.14
+* Shipping： 7.x-2.3
